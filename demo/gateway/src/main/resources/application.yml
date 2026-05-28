@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: gateway
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            publish:
+              - instance-id: publish1
+                uri: http://publish1:8080
+                metadata:
+                  region: region1
+                  timezone: America/New_York
+              - instance-id: publish2
+                uri: http://publish2:8080
+                metadata:
+                  region: region2
+                  timezone: Europe/Amsterdam
+              - instance-id: publish3
+                uri: http://publish3:8080
+                metadata:
+                  region: region3
+                  timezone: Asia/Kolkata
+              - instance-id: publish4
+                uri: http://publish4:8080
+                metadata:
+                  region: region4
+                  timezone: America/Sao_Paulo
+              - instance-id: publish5
+                uri: http://publish5:8080
+                metadata:
+                  region: region5
+                  timezone: Asia/Tokyo
+    loadbalancer:
+      configurations: health-check
+      health-check:
+        path:
+          publish: /actuator/health
+        interval: 5s
+        initial-delay: 2s
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: publish
+              uri: lb://publish
+              predicates:
+                - Path=/publish
+              filters:
+                - name: Retry
+                  args:
+                    retries: 4
+                    methods: POST,GET
+                    series: SERVER_ERROR
+                    statuses: SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT,BAD_GATEWAY
+                    exceptions:
+                      - java.io.IOException
+                      - java.util.concurrent.TimeoutException
+                    backoff:
+                      firstBackoff: 100ms
+                      maxBackoff: 500ms
+                      factor: 2
+                      basedOnPreviousValue: false
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+
+logging:
+  level:
+    dev.dashaun.gateway: INFO

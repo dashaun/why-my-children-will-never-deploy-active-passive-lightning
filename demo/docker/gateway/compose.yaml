@@ -1,0 +1,19 @@
+version: '3.8'
+
+networks:
+  gemfire-cache:
+    external: true
+
+services:
+  # ============================================
+  # Spring Cloud Gateway — one route, load-balanced
+  # across publish1..publish5. Retries on failure.
+  # ============================================
+  gateway:
+    image: gateway:0
+    container_name: gateway
+    networks:
+      - gemfire-cache
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

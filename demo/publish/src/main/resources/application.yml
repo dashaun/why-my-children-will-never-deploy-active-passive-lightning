@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: publish
+
+server:
+  port: 8080
+
+region:
+  name: ${REGION_NAME:region1}
+  timezone: ${REGION_TIMEZONE:America/New_York}
+
+gemfire:
+  locator:
+    host: ${GEMFIRE_LOCATOR_HOST:localhost}
+    port: ${GEMFIRE_LOCATOR_PORT:10001}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+logging:
+  level:
+    dev.dashaun.rest.publish: INFO

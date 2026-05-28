@@ -1,0 +1,127 @@
+version: '3.8'
+
+networks:
+  gemfire-cache:
+    external: true
+
+services:
+  # ============================================
+  # Cluster 3 - Locator
+  # ============================================
+  gf5-locator:
+    image: gemfire/gemfire:10.1-jdk21
+    container_name: gf5-locator
+    networks:
+      - gemfire-cache
+    environment:
+      - ACCEPT_TERMS=y
+    command: >
+      gfsh start locator
+      --name=gf5-locator
+      --enable-cluster-configuration=true
+      --connect=false
+      --port=10005
+      --http-service-port=7075
+      --J=-Dgemfire.tcp-port=11112
+      --J=-Dgemfire.jmx-manager-port=1099
+      --max-heap=250m
+      --initial-heap=250m
+      --J=-Dgemfire.distributed-system-id=5
+      --J=-Dgemfire.remote-locators=gf1-locator[10001],gf2-locator[10002],gf3-locator[10003],gf4-locator[10004]
+      --J=-Dgemfire.prometheus.metrics.emission=Default
+      --J=-Dgemfire.prometheus.metrics.port=7777
+      --J=-Duser.timezone=Asia/Tokyo
+      --J=-Dgemfire.prometheus.metrics.interval=15s
+    healthcheck:
+      test: ["CMD", "gfsh", "-e", "connect --locator=gf5-locator[10005]"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ============================================
+  # Cluster 3 - Server
+  # ============================================
+  gf5-server:
+    image: gemfire/gemfire:10.1-jdk21
+    container_name: gf5-server
+    networks:
+      - gemfire-cache
+    environment:
+      - ACCEPT_TERMS=y
+    command: >
+      gfsh start server
+      --name=gf5-server
+      --use-cluster-configuration=true
+      --server-port=10105
+      --locators=gf5-locator[10005]
+      --max-heap=1g
+      --initial-heap=1g
+      --J=-Dgemfire.distributed-system-id=5
+      --J=-Dgemfire.prometheus.metrics.emission=Default
+      --J=-Dgemfire.prometheus.metrics.port=7777
+      --J=-Duser.timezone=Asia/Tokyo
+      --J=-Dgemfire.prometheus.metrics.interval=15s
+    depends_on:
+      gf5-locator:
+        condition: service_healthy
+
+  # ============================================
+  # Cluster 3 - Configuration
+  # ============================================
+  gf5-config:
+    image: gemfire/gemfire:10.1-jdk21
+    container_name: gf5-config
+    networks:
+      - gemfire-cache
+    depends_on:
+      gf5-server:
+        condition: service_started
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "Waiting for Cluster 5 to be ready..."
+        sleep 10
+        
+        echo "Configuring PDX on Cluster 5..."
+        gfsh -e "connect --locator=gf5-locator[10005]" \
+             -e "configure pdx --read-serialized=true --disk-store"
+        
+        echo "Setting up WAN gateway receiver on Cluster 5..."
+        gfsh -e "connect --locator=gf5-locator[10005]" \
+             -e "create gateway-receiver"
+        
+        echo "Setting up WAN gateway senders on Cluster 5..."
+        gfsh -e "connect --locator=gf5-locator[10005]" \
+             -e "create gateway-sender --id=Account_Sender_to_1 --parallel=true --remote-distributed-system-id=1 --enable-persistence=true --enable-batch-conflation=true" \
+             -e "create gateway-sender --id=Account_Sender_to_2 --parallel=true --remote-distributed-system-id=2 --enable-persistence=true --enable-batch-conflation=true" \
+             -e "create gateway-sender --id=Account_Sender_to_3 --parallel=true --remote-distributed-system-id=3 --enable-persistence=true --enable-batch-conflation=true" \
+             -e "create gateway-sender --id=Account_Sender_to_4 --parallel=true --remote-distributed-system-id=4 --enable-persistence=true --enable-batch-conflation=true"
+        
+        
+        
+        echo "Creating regions on Cluster 5..."
+        gfsh -e "connect --locator=gf5-locator[10005]" \
+             -e "create region --name=Account --type=PARTITION --gateway-sender-id=Account_Sender_to_1,Account_Sender_to_2,Account_Sender_to_3,Account_Sender_to_4" \
+             -e "create region --name=health5 --type=PARTITION"
+        
+        echo "Cluster 5 configuration complete!"
+
+  # ============================================
+  # Cluster 5 - Publish app (one per region)
+  # ============================================
+  publish5:
+    image: publish:0
+    container_name: publish5
+    networks:
+      - gemfire-cache
+    environment:
+      GEMFIRE_LOCATOR_HOST: gf5-locator
+      GEMFIRE_LOCATOR_PORT: 10005
+      REGION_NAME: region5
+      REGION_TIMEZONE: Asia/Tokyo
+    depends_on:
+      gf5-config:
+        condition: service_completed_successfully
+    restart: unless-stopped

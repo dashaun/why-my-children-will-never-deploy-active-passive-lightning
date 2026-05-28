@@ -1,0 +1,126 @@
+version: '3.8'
+
+networks:
+  gemfire-cache:
+    external: true
+
+services:
+  # ============================================
+  # Cluster 3 - Locator
+  # ============================================
+  gf4-locator:
+    image: gemfire/gemfire:10.1-jdk21
+    container_name: gf4-locator
+    networks:
+      - gemfire-cache
+    environment:
+      - ACCEPT_TERMS=y
+    command: >
+      gfsh start locator
+      --name=gf4-locator
+      --enable-cluster-configuration=true
+      --connect=false
+      --port=10004
+      --http-service-port=7074
+      --J=-Dgemfire.tcp-port=11112
+      --J=-Dgemfire.jmx-manager-port=1099
+      --max-heap=250m
+      --initial-heap=250m
+      --J=-Dgemfire.distributed-system-id=4
+      --J=-Dgemfire.remote-locators=gf1-locator[10001],gf2-locator[10002],gf3-locator[10003]
+      --J=-Dgemfire.prometheus.metrics.emission=Default
+      --J=-Dgemfire.prometheus.metrics.port=7777
+      --J=-Duser.timezone=America/Sao_Paulo
+      --J=-Dgemfire.prometheus.metrics.interval=15s
+    healthcheck:
+      test: ["CMD", "gfsh", "-e", "connect --locator=gf4-locator[10004]"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ============================================
+  # Cluster 3 - Server
+  # ============================================
+  gf4-server:
+    image: gemfire/gemfire:10.1-jdk21
+    container_name: gf4-server
+    networks:
+      - gemfire-cache
+    environment:
+      - ACCEPT_TERMS=y
+    command: >
+      gfsh start server
+      --name=gf4-server
+      --use-cluster-configuration=true
+      --server-port=10104
+      --locators=gf4-locator[10004]
+      --max-heap=1g
+      --initial-heap=1g
+      --J=-Dgemfire.distributed-system-id=4
+      --J=-Dgemfire.prometheus.metrics.emission=Default
+      --J=-Dgemfire.prometheus.metrics.port=7777
+      --J=-Duser.timezone=America/Sao_Paulo
+      --J=-Dgemfire.prometheus.metrics.interval=15s
+    depends_on:
+      gf4-locator:
+        condition: service_healthy
+
+  # ============================================
+  # Cluster 3 - Configuration
+  # ============================================
+  gf4-config:
+    image: gemfire/gemfire:10.1-jdk21
+    container_name: gf4-config
+    networks:
+      - gemfire-cache
+    depends_on:
+      gf4-server:
+        condition: service_started
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "Waiting for Cluster 4 to be ready..."
+        sleep 10
+        
+        echo "Configuring PDX on Cluster 4..."
+        gfsh -e "connect --locator=gf4-locator[10004]" \
+             -e "configure pdx --read-serialized=true --disk-store"
+        
+        echo "Setting up WAN gateway receiver on Cluster 4..."
+        gfsh -e "connect --locator=gf4-locator[10004]" \
+             -e "create gateway-receiver"
+        
+        echo "Setting up WAN gateway senders on Cluster 4..."
+        gfsh -e "connect --locator=gf4-locator[10004]" \
+             -e "create gateway-sender --id=Account_Sender_to_1 --parallel=true --remote-distributed-system-id=1 --enable-persistence=true --enable-batch-conflation=true" \
+             -e "create gateway-sender --id=Account_Sender_to_2 --parallel=true --remote-distributed-system-id=2 --enable-persistence=true --enable-batch-conflation=true" \
+             -e "create gateway-sender --id=Account_Sender_to_3 --parallel=true --remote-distributed-system-id=3 --enable-persistence=true --enable-batch-conflation=true" \
+             -e "create gateway-sender --id=Account_Sender_to_5 --parallel=true --remote-distributed-system-id=5 --enable-persistence=true --enable-batch-conflation=true"
+        
+        
+        echo "Creating regions on Cluster 4..."
+        gfsh -e "connect --locator=gf4-locator[10004]" \
+             -e "create region --name=Account --type=PARTITION --gateway-sender-id=Account_Sender_to_1,Account_Sender_to_2,Account_Sender_to_3,Account_Sender_to_5" \
+             -e "create region --name=health4 --type=PARTITION"
+        
+        echo "Cluster 4 configuration complete!"
+
+  # ============================================
+  # Cluster 4 - Publish app (one per region)
+  # ============================================
+  publish4:
+    image: publish:0
+    container_name: publish4
+    networks:
+      - gemfire-cache
+    environment:
+      GEMFIRE_LOCATOR_HOST: gf4-locator
+      GEMFIRE_LOCATOR_PORT: 10004
+      REGION_NAME: region4
+      REGION_TIMEZONE: America/Sao_Paulo
+    depends_on:
+      gf4-config:
+        condition: service_completed_successfully
+    restart: unless-stopped

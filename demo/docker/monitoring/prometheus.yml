@@ -1,0 +1,58 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Cluster 1 - Locator
+  - job_name: 'gf1-locator'
+    static_configs:
+      - targets: ['gf1-locator:7777']
+        labels:
+          cluster: 'cluster1'
+          member_type: 'locator'
+          member: 'gf1-locator'
+
+  # Cluster 1 - Server
+  - job_name: 'gf1-server'
+    static_configs:
+      - targets: ['gf1-server:7777']
+        labels:
+          cluster: 'cluster1'
+          member_type: 'server'
+          member: 'gf1-server'
+
+  # Cluster 2 - Locator
+  - job_name: 'gf2-locator'
+    static_configs:
+      - targets: ['gf2-locator:7777']
+        labels:
+          cluster: 'cluster2'
+          member_type: 'locator'
+          member: 'gf2-locator'
+
+  # Cluster 2 - Server
+  - job_name: 'gf2-server'
+    static_configs:
+      - targets: ['gf2-server:7777']
+        labels:
+          cluster: 'cluster2'
+          member_type: 'server'
+          member: 'gf2-server'
+
+  # Cluster 3 - Locator
+  - job_name: 'gf3-locator'
+    static_configs:
+      - targets: ['gf3-locator:7777']
+        labels:
+          cluster: 'cluster3'
+          member_type: 'locator'
+          member: 'gf3-locator'
+
+  # Cluster 3 - Server
+  - job_name: 'gf3-server'
+    static_configs:
+      - targets: ['gf3-server:7777']
+        labels:
+          cluster: 'cluster3'
+          member_type: 'server'
+          member: 'gf3-server'
